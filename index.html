@@ -1,0 +1,87 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cape Town Sun Path</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;background:#fafaf7;color:#222}
+header{padding:16px 24px;border-bottom:1px solid #ddd}h1{margin:0;font-size:20px}
+main{max-width:1100px;margin:auto;padding:16px 24px}
+form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+input{padding:8px;border:1px solid #bbb;border-radius:6px;font-size:14px}#addr{flex:1;min-width:260px}
+button{padding:8px 16px;border:0;border-radius:6px;background:#222;color:#fff;cursor:pointer}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid #e3e3e3;border-radius:10px;padding:12px}
+#map{height:260px;border-radius:8px}table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{padding:4px 6px;border-bottom:1px solid #eee;text-align:right}td:first-child,th:first-child{text-align:left}
+.bar{display:inline-block;height:8px;border-radius:4px;vertical-align:middle}
+.small{font-size:12px;color:#666}#status{font-size:13px;color:#a33}
+</style></head><body>
+<header><h1>☀ Cape Town Sun Path & Facade Sun</h1><div class="small">Southern hemisphere: north faces the sun. Times in SAST (UTC+2).</div></header>
+<main>
+<form id="f"><input id="addr" value="67 Rosemead Avenue, Kenilworth, Cape Town"><input id="date" type="date"><button>Analyse</button></form>
+<div id="status"></div><div id="info" class="small"></div>
+<div class="grid">
+<div class="card"><canvas id="sp" width="520" height="520" style="width:100%"></canvas>
+<div class="small"><span style="color:#d62">■ 21 Dec</span> &nbsp;<span style="color:#2a7">■ Equinox</span> &nbsp;<span style="color:#36c">■ 21 Jun</span> &nbsp;<span style="color:#a3a">■ Chosen date</span></div></div>
+<div><div class="card"><div id="map"></div></div>
+<div class="card" style="margin-top:16px"><b>Key numbers</b><div id="keys" class="small"></div></div></div>
+</div>
+<div class="card" style="margin-top:16px"><b>Facade analysis</b> <span class="small">(direct sun hours; exposure = Σ cos(incidence angle on the vertical wall) over the day, clear sky, no shading, relative to best)</span>
+<div class="grid"><div><h4>Summer (21 Dec)</h4><div id="sum"></div></div><div><h4>Winter (21 Jun)</h4><div id="win"></div></div></div></div>
+</main>
+<script>
+const R=Math.PI/180;
+// NOAA solar position. Returns azimuth (deg from N, clockwise) and altitude.
+function sunPos(d,lat,lon){const jd=d.getTime()/864e5+2440587.5,T=(jd-2451545)/36525;
+const L0=(280.46646+T*(36000.76983+T*0.0003032))%360,M=357.52911+T*(35999.05029-0.0001537*T);
+const e=0.016708634-T*(0.000042037+0.0000001267*T);
+const C=Math.sin(M*R)*(1.914602-T*(0.004817+0.000014*T))+Math.sin(2*M*R)*(0.019993-0.000101*T)+Math.sin(3*M*R)*0.000289;
+const om=125.04-1934.136*T,lam=L0+C-0.00569-0.00478*Math.sin(om*R);
+const eps=23+(26+(21.448-T*(46.815+T*(0.00059-T*0.001813)))/60)/60+0.00256*Math.cos(om*R);
+const dec=Math.asin(Math.sin(eps*R)*Math.sin(lam*R));
+const y=Math.tan(eps*R/2)**2;
+const Et=4/R*(y*Math.sin(2*L0*R)-2*e*Math.sin(M*R)+4*e*y*Math.sin(M*R)*Math.cos(2*L0*R)-0.5*y*y*Math.sin(4*L0*R)-1.25*e*e*Math.sin(2*M*R));
+const utcMin=d.getUTCHours()*60+d.getUTCMinutes()+d.getUTCSeconds()/60;
+const tst=utcMin+Et+4*lon,ha=(tst/4-180)*R,la=lat*R;
+const alt=Math.asin(Math.sin(la)*Math.sin(dec)+Math.cos(la)*Math.cos(dec)*Math.cos(ha));
+let az=Math.atan2(Math.sin(ha),Math.cos(ha)*Math.sin(la)-Math.tan(dec)*Math.cos(la))/R+180;
+return{alt:alt/R,az:(az+360)%360};}
+function day(y,m,dd,lat,lon,step=5){const out=[];for(let t=0;t<1440;t+=step){const d=new Date(Date.UTC(y,m-1,dd,0,t)-2*36e5);out.push({t,...sunPos(d,lat,lon)});}return out;}
+const fmt=t=>String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
+function draw(lat,lon,sel){const c=document.getElementById('sp'),g=c.getContext('2d'),W=c.width,cx=W/2,cy=W/2,r=W/2-30;
+g.clearRect(0,0,W,W);g.font='12px system-ui';g.strokeStyle='#ccc';g.fillStyle='#888';
+const P=(az,alt)=>{const rr=r*Math.tan((90-alt)*R/2);return[cx+rr*Math.sin(az*R),cy-rr*Math.cos(az*R)]};
+for(let a=0;a<=80;a+=10){g.beginPath();g.arc(cx,cy,r*Math.tan((90-a)*R/2),0,7);g.stroke();if(a)g.fillText(a+'°',cx+3,cy-r*Math.tan((90-a)*R/2)-2);}
+for(let az=0;az<360;az+=30){const[x,y]=P(az,0);g.beginPath();g.moveTo(cx,cy);g.lineTo(x,y);g.stroke();}
+g.fillStyle='#222';g.font='bold 14px system-ui';[['N',0],['E',90],['S',180],['W',270]].forEach(([l,a])=>{const[x,y]=P(a,-9);g.fillText(l,x-5,y+5)});
+const curves=[[[2026,12,21],'#d62'],[[2026,3,20],'#2a7'],[[2026,6,21],'#36c'],[sel,'#a3a']];
+curves.forEach(([dt,col])=>{const pts=day(...dt,lat,lon,2);g.strokeStyle=col;g.lineWidth=2.5;g.beginPath();let on=false;
+pts.forEach(p=>{if(p.alt>0){const[x,y]=P(p.az,p.alt);on?g.lineTo(x,y):g.moveTo(x,y);on=true}else on=false});g.stroke();
+g.fillStyle=col;g.font='10px system-ui';pts.filter(p=>p.t%120==0&&p.alt>0).forEach(p=>{const[x,y]=P(p.az,p.alt);g.beginPath();g.arc(x,y,3,0,7);g.fill();g.fillText(fmt(p.t).slice(0,2)+'h',x+4,y-4)});});g.lineWidth=1;}
+const FAC=[['N',0],['NE',45],['E',90],['SE',135],['S',180],['SW',225],['W',270],['NW',315]];
+function facades(y,m,d,lat,lon){const pts=day(y,m,d,lat,lon,5);return FAC.map(([n,fa])=>{let h=0,ex=0,first=null,last=null;
+pts.forEach(p=>{if(p.alt<=0)return;const ci=Math.cos(p.alt*R)*Math.cos((p.az-fa)*R);if(ci>0){h+=5/60;ex+=ci*5/60;if(first===null)first=p.t;last=p.t}});
+return{n,h,ex,win:first===null?'—':fmt(first)+'–'+fmt(last+5)}});}
+function table(el,rows,col){const mx=Math.max(...rows.map(r=>r.ex));const s=[...rows].sort((a,b)=>b.ex-a.ex);
+document.getElementById(el).innerHTML='<table><tr><th>#</th><th>Facade</th><th>Sun hrs</th><th>Window (SAST)</th><th>Rel. exposure</th></tr>'+s.map((r,i)=>`<tr><td>${i+1}</td><td><b>${r.n}</b></td><td>${r.h.toFixed(1)}</td><td>${r.win}</td><td>${Math.round(100*r.ex/mx)}% <span class="bar" style="width:${60*r.ex/mx}px;background:${col}"></span></td></tr>`).join('')+'</table>';}
+let map,mk;
+function run(lat,lon,label){const dv=document.getElementById('date').value.split('-').map(Number);
+document.getElementById('info').textContent=label+' ('+lat.toFixed(4)+', '+lon.toFixed(4)+')';
+if(!map){map=L.map('map');L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);}
+map.setView([lat,lon],16);mk?mk.setLatLng([lat,lon]):mk=L.marker([lat,lon]).addTo(map);
+draw(lat,lon,dv);
+const noon=(y,m,d)=>Math.max(...day(y,m,d,lat,lon,2).map(p=>p.alt));
+const sl=(y,m,d)=>{const p=day(y,m,d,lat,lon,1).filter(p=>p.alt>-0.833);return fmt(p[0].t)+' – '+fmt(p[p.length-1].t)};
+document.getElementById('keys').innerHTML=[['21 Dec',2026,12,21],['Equinox',2026,3,20],['21 Jun',2026,6,21],['Chosen',...dv]].map(([n,...a])=>`${n}: noon altitude <b>${noon(...a).toFixed(1)}°</b>, sunrise–sunset ${sl(...a)}`).join('<br>');
+table('sum',facades(2026,12,21,lat,lon),'#d62');table('win',facades(2026,6,21,lat,lon),'#36c');}
+document.getElementById('date').valueAsDate=new Date();
+document.getElementById('f').onsubmit=async e=>{e.preventDefault();const st=document.getElementById('status');st.textContent='Looking up address…';
+try{const q=document.getElementById('addr').value;let hit=null;
+const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=za&q='+encodeURIComponent(q));const j=await r.json();
+if(j.length)hit={lat:+j[0].lat,lon:+j[0].lon,name:j[0].display_name};
+else{const r2=await fetch('https://photon.komoot.io/api/?limit=1&lat=-33.95&lon=18.5&q='+encodeURIComponent(q));const f=(await r2.json()).features||[];
+if(f.length){const p=f[0].properties;hit={lat:f[0].geometry.coordinates[1],lon:f[0].geometry.coordinates[0],name:[p.housenumber,p.street,p.district,p.city].filter(Boolean).join(', ')+' (fuzzy match)'}}}
+if(!hit){st.textContent='Address not found — try adding "Cape Town".';return}st.textContent='';run(hit.lat,hit.lon,hit.name);}catch(err){st.textContent='Geocoding failed: '+err}};
+run(-33.9249,18.4241,'Cape Town CBD (default)');
+if(location.hash.length>1){document.getElementById('addr').value=decodeURIComponent(location.hash.slice(1));document.getElementById('f').requestSubmit();}
+</script></body></html>
